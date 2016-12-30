@@ -29,6 +29,36 @@ var net = require('net');
 var fs = require('fs');
 var moment = require('moment');
 
+const serverid = '10.0.1.5;
+var ipc=require('node-ipc');
+ipc.config.id   = 'cloud-server-'+serverid;
+ipc.config.retry= 0;
+
+ipc.connectToNet(
+    'routingdb',
+    '10.0.1.7',
+    2000,
+    function(){
+        ipc.of.routingdb.on(
+            'connect',
+            function(){
+                ipc.log('## connected to routingdb ##'.rainbow, ipc.config.delay);
+            }
+        );
+        ipc.of.routingdb.on(
+            'disconnect',
+            function(){
+                ipc.log('disconnected from routingdb'.notice);
+            }
+        );
+        ipc.of.routingdb.on(
+            'results',  //any event or message type your server listens for 
+            function(data){
+                ipc.log('got a message from routingdb : '.debug, data);
+            }
+        );
+    }
+);
 
 var DeviceServer = function (options) {
     this.options = options;
@@ -226,6 +256,13 @@ DeviceServer.prototype = {
                             that._attribsByID[coreid].ip = this.getRemoteIPAddress();
                             that.saveCoreData(coreid, that._attribsByID[coreid]);
                             
+                            //Update routingdb
+                            ipc.of.routingdb.emit(
+                                'update', 
+                                JSON.stringify({deviceid: coreid, server: serverid});
+                            );
+                            //End routing code
+
                             that.publishSpecialEvents('spark/status', 'online', coreid);
                         });
                         core.on('disconnect', function (msg) {
@@ -244,7 +281,8 @@ DeviceServer.prototype = {
 
         global.cores = _cores;
         global.publisher = new EventPublisher();
-
+        global.publisher.setMaxListners(50);
+        
         server.on('error', function () {
             logger.error("something blew up ", arguments);
         });
